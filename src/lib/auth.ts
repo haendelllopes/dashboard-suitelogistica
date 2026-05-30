@@ -1,6 +1,5 @@
 import { NextAuthOptions } from 'next-auth'
 import GoogleProvider from 'next-auth/providers/google'
-import EmailProvider from 'next-auth/providers/email'
 import { createAdminClient } from '@/lib/supabase'
 
 const ALLOWED_DOMAIN = 'totvs.com.br'
@@ -11,30 +10,16 @@ export const authOptions: NextAuthOptions = {
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     }),
-    EmailProvider({
-      from: process.env.EMAIL_FROM ?? 'noreply@suitelogistica.com',
-      async sendVerificationRequest({ identifier: email, url }) {
-        // Usa Supabase para enviar magic link
-        const supabase = createAdminClient()
-        await supabase.auth.admin.generateLink({
-          type: 'magiclink',
-          email,
-          options: { redirectTo: url },
-        })
-      },
-    }),
   ],
 
   callbacks: {
-    async signIn({ user, account }) {
+    async signIn({ user }) {
       const email = user.email ?? ''
 
-      // Bloqueia emails fora do domínio
       if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) {
         return `/login?error=DomainNotAllowed`
       }
 
-      // Upsert usuário no Supabase
       try {
         const supabase = createAdminClient()
         await supabase.from('users').upsert(
@@ -75,7 +60,7 @@ export const authOptions: NextAuthOptions = {
 
   session: {
     strategy: 'jwt',
-    maxAge: 8 * 60 * 60, // 8 horas
+    maxAge: 8 * 60 * 60,
   },
 
   secret: process.env.NEXTAUTH_SECRET,

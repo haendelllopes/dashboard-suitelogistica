@@ -3,9 +3,10 @@
 import { signIn, useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState, Suspense } from 'react'
+import { supabase } from '@/lib/supabase'
 
 function LoginContent() {
-  const { data: session, status } = useSession()
+  const { status } = useSession()
   const router = useRouter()
   const searchParams = useSearchParams()
   const error = searchParams.get('error')
@@ -13,6 +14,7 @@ function LoginContent() {
   const [email, setEmail] = useState('')
   const [emailSent, setEmailSent] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [emailError, setEmailError] = useState('')
 
   useEffect(() => {
     if (status === 'authenticated') router.replace('/dashboard')
@@ -20,14 +22,27 @@ function LoginContent() {
 
   const handleGoogle = () => signIn('google', { callbackUrl: '/dashboard' })
 
-  const handleEmail = async (e: React.FormEvent) => {
+  const handleMagicLink = async (e: React.FormEvent) => {
     e.preventDefault()
+    setEmailError('')
+
     if (!email.endsWith('@totvs.com.br')) {
-      alert('Apenas emails @totvs.com.br são permitidos.')
+      setEmailError('Apenas emails @totvs.com.br são permitidos.')
       return
     }
+
     setLoading(true)
-    await signIn('email', { email, callbackUrl: '/dashboard', redirect: false })
+    const { error: supaErr } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/dashboard` },
+    })
+
+    if (supaErr) {
+      setEmailError('Erro ao enviar email. Tente novamente.')
+      setLoading(false)
+      return
+    }
+
     setEmailSent(true)
     setLoading(false)
   }
@@ -35,7 +50,7 @@ function LoginContent() {
   if (status === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="skeleton w-8 h-8 rounded-full" />
+        <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -52,7 +67,7 @@ function LoginContent() {
             </svg>
           </div>
           <h1 className="text-2xl font-bold text-white">WMS Dashboard</h1>
-          <p className="text-primary-200 text-sm mt-1">Suite Logística — TOTVS</p>
+          <p className="text-blue-200 text-sm mt-1">Suite Logística — TOTVS</p>
         </div>
 
         {/* Card */}
@@ -65,7 +80,15 @@ function LoginContent() {
                 </svg>
               </div>
               <h2 className="text-lg font-semibold text-gray-900 mb-2">Email enviado!</h2>
-              <p className="text-sm text-gray-500">Verifique sua caixa de entrada em <strong>{email}</strong> e clique no link para entrar.</p>
+              <p className="text-sm text-gray-500">
+                Verifique sua caixa de entrada em <strong>{email}</strong> e clique no link para entrar.
+              </p>
+              <button
+                onClick={() => setEmailSent(false)}
+                className="mt-4 text-sm text-blue-600 hover:underline"
+              >
+                Usar outro email
+              </button>
             </div>
           ) : (
             <>
@@ -80,7 +103,7 @@ function LoginContent() {
               )}
 
               {/* Google */}
-              <button onClick={handleGoogle} className="w-full btn-secondary justify-center mb-4 py-3">
+              <button onClick={handleGoogle} className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-gray-300 rounded-lg font-medium text-sm text-gray-700 hover:bg-gray-50 transition-colors mb-4">
                 <svg className="w-5 h-5" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                   <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -95,28 +118,34 @@ function LoginContent() {
                   <div className="w-full border-t border-gray-200" />
                 </div>
                 <div className="relative flex justify-center text-xs text-gray-400">
-                  <span className="px-2 bg-white">ou via email</span>
+                  <span className="px-2 bg-white">ou via Magic Link</span>
                 </div>
               </div>
 
-              {/* Email Magic Link */}
-              <form onSubmit={handleEmail} className="space-y-3">
+              {/* Magic Link via Supabase */}
+              <form onSubmit={handleMagicLink} className="space-y-3">
                 <input
                   type="email"
                   value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  onChange={e => { setEmail(e.target.value); setEmailError('') }}
                   placeholder="seu.nome@totvs.com.br"
                   required
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm
-                             focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
-                <button type="submit" disabled={loading} className="w-full btn-primary justify-center py-2.5">
+                {emailError && <p className="text-xs text-red-600">{emailError}</p>}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium text-sm
+                             hover:bg-blue-700 transition-colors disabled:opacity-60"
+                >
                   {loading ? 'Enviando...' : 'Enviar Magic Link'}
                 </button>
               </form>
 
               <p className="text-xs text-gray-400 text-center mt-5">
-                Acesso restrito a colaboradores TOTVS com email @totvs.com.br
+                Acesso restrito a colaboradores com email @totvs.com.br
               </p>
             </>
           )}

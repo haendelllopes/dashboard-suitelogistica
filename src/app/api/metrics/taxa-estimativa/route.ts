@@ -5,6 +5,40 @@ import { createAdminClient } from '@/lib/supabase'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+// GET — retorna a métrica mais recente salva no Supabase
+export async function GET(): Promise<NextResponse> {
+  try {
+    const supabase = createAdminClient()
+    const { data, error } = await supabase
+      .from('metrics')
+      .select('*')
+      .eq('metric_name', METRIC_NAME)
+      .order('date', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (error || !data) {
+      return NextResponse.json(
+        { success: false, error: 'Nenhuma métrica encontrada. Execute o sync primeiro.' },
+        { status: 404 }
+      )
+    }
+
+    return NextResponse.json({
+      success: true,
+      metric_name: data.metric_name,
+      value: data.value,
+      target: data.target ?? TARGET,
+      status: data.status,
+      issues_processed: data.issues_processed ?? null,
+      timestamp: data.created_at ?? data.date,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Erro interno'
+    return NextResponse.json({ success: false, error: message }, { status: 500 })
+  }
+}
+
 const METRIC_NAME = 'taxa_estimativa_acurada'
 const CATEGORY = 'planejamento'
 const TARGET = 80

@@ -13,69 +13,119 @@ interface MetricData {
   error?: string
 }
 
+type CardState = 'loading' | 'empty' | 'error' | 'success'
+
 export function TaxaEstimativaCard() {
   const [data, setData] = useState<MetricData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [state, setState] = useState<CardState>('loading')
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
 
-  useEffect(() => {
-    async function fetchMetric() {
-      try {
-        const res = await fetch('/api/metrics/taxa-estimativa')
-        const json = await res.json()
-
-        if (!res.ok || !json.success) {
-          setError(json.error ?? 'Erro ao carregar métrica.')
-        } else {
-          setData(json)
-        }
-      } catch {
-        setError('Não foi possível conectar à API.')
-      } finally {
-        setLoading(false)
+  async function fetchMetric() {
+    setState('loading')
+    setErrorMsg(null)
+    try {
+      const res = await fetch('/api/metrics/taxa-estimativa')
+      if (res.status === 404) {
+        setState('empty')
+        return
       }
+      const json: MetricData = await res.json()
+      if (!res.ok || !json.success) {
+        setErrorMsg(json.error ?? 'Erro ao carregar métrica.')
+        setState('error')
+      } else {
+        setData(json)
+        setState('success')
+      }
+    } catch {
+      setErrorMsg('Não foi possível conectar à API.')
+      setState('error')
     }
+  }
 
-    fetchMetric()
-  }, [])
+  async function handleSync() {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/metrics/taxa-estimativa', { method: 'POST' })
+      const json = await res.json()
+      if (json.success) {
+        setData(json)
+        setState('success')
+      } else {
+        setErrorMsg(json.error ?? 'Erro no sync.')
+        setState('error')
+      }
+    } catch {
+      setErrorMsg('Falha ao executar sync.')
+      setState('error')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  useEffect(() => { fetchMetric() }, [])
 
   // ── Loading ──────────────────────────────────────────────
-  if (loading) {
+  if (state === 'loading') {
     return (
-      <div className="card flex flex-col gap-4 min-h-[180px] items-center justify-center">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-gray-400">Carregando métrica...</p>
+      <div className="card flex flex-col items-center justify-center gap-3 min-h-[180px]">
+        <div className="w-7 h-7 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs text-gray-400">Carregando métrica...</p>
+      </div>
+    )
+  }
+
+  // ── Sem dados — nunca sincronizado ───────────────────────
+  if (state === 'empty') {
+    return (
+      <div className="card border-dashed border-2 border-gray-300 flex flex-col items-center justify-center gap-3 min-h-[180px] text-center">
+        <span className="text-3xl">📊</span>
+        <div>
+          <p className="text-sm font-semibold text-gray-700">Taxa de Estimativa Acurada</p>
+          <p className="text-xs text-gray-400 mt-1">Nenhum dado ainda</p>
+        </div>
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="btn-primary text-xs py-1.5 px-3 disabled:opacity-60"
+        >
+          {syncing ? (
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Sincronizando...
+            </span>
+          ) : '⚡ Sincronizar agora'}
+        </button>
       </div>
     )
   }
 
   // ── Error ────────────────────────────────────────────────
-  if (error || !data) {
+  if (state === 'error' || !data) {
     return (
-      <div className="card border-red-200 bg-red-50 min-h-[180px] flex flex-col gap-3 justify-center">
+      <div className="card border-2 border-red-200 bg-red-50 flex flex-col gap-3 min-h-[180px] justify-center">
         <div className="flex items-center gap-2 text-red-700">
-          <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
           </svg>
-          <p className="text-sm font-medium">Taxa de Estimativa Acurada</p>
+          <p className="text-sm font-semibold">Taxa de Estimativa Acurada</p>
         </div>
-        <p className="text-xs text-red-600">{error ?? 'Dados indisponíveis.'}</p>
-        <button
-          onClick={() => { setLoading(true); setError(null); window.location.reload() }}
-          className="text-xs text-red-700 underline self-start"
-        >
+        <p className="text-xs text-red-600">{errorMsg}</p>
+        <button onClick={fetchMetric} className="text-xs text-red-700 underline self-start">
           Tentar novamente
         </button>
       </div>
     )
   }
 
-  // ── Valores calculados ───────────────────────────────────
+  // ── Success ──────────────────────────────────────────────
   const { value, target, status, issues_processed, timestamp } = data
   const isOk = status === 'ok'
   const progressPct = Math.min(value, 100)
   const targetPct = Math.min(target, 100)
+  const diff = (value - target).toFixed(1)
   const formattedDate = new Date(timestamp).toLocaleDateString('pt-BR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
   })
@@ -87,59 +137,46 @@ export function TaxaEstimativaCard() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            Planejamento
-          </p>
-          <h3 className="text-sm font-bold text-gray-900 mt-0.5">
-            Taxa de Estimativa Acurada
-          </h3>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Planejamento</p>
+          <h3 className="text-sm font-bold text-gray-900 mt-0.5">Taxa de Estimativa Acurada</h3>
         </div>
-
-        {/* Status badge */}
         <span className={`badge flex items-center gap-1 ${
           isOk ? 'badge-green' : 'bg-orange-100 text-orange-800'
         }`}>
-          {isOk ? '✅' : '⚠️'}
-          {isOk ? 'OK' : 'Warning'}
+          {isOk ? '✅ OK' : '⚠️ Warning'}
         </span>
       </div>
 
-      {/* Valor principal */}
-      <div className="flex items-end gap-2">
+      {/* Valor */}
+      <div className="flex items-end gap-1.5">
         <span className={`text-5xl font-bold tabular-nums ${
           isOk ? 'text-blue-600' : 'text-orange-500'
         }`}>
           {value.toFixed(1)}
         </span>
         <span className="text-xl text-gray-400 mb-1">%</span>
-        <span className={`ml-auto text-sm font-medium ${
+        <span className={`ml-auto text-xs font-medium ${
           isOk ? 'text-green-600' : 'text-orange-500'
         }`}>
-          {isOk ? `+${(value - target).toFixed(1)}pp acima` : `${(value - target).toFixed(1)}pp abaixo`} da meta
+          {Number(diff) >= 0 ? `+${diff}pp` : `${diff}pp`} da meta
         </span>
       </div>
 
-      {/* Barra de progresso com marcador de meta */}
+      {/* Barra de progresso */}
       <div className="space-y-1.5">
-        <div className="relative w-full h-3 bg-gray-100 rounded-full overflow-visible">
-          {/* Progresso */}
+        <div className="relative w-full h-3 bg-gray-100 rounded-full">
           <div
             className={`h-full rounded-full transition-all duration-700 ${
               isOk ? 'bg-blue-500' : 'bg-orange-400'
             }`}
             style={{ width: `${progressPct}%` }}
           />
-
-          {/* Linha da meta */}
+          {/* Marcador de meta */}
           <div
-            className="absolute top-0 h-full flex flex-col items-center"
+            className="absolute top-0 bottom-0 w-0.5 bg-green-600 z-10"
             style={{ left: `${targetPct}%` }}
-          >
-            <div className="w-0.5 h-full bg-green-600 z-10" />
-          </div>
+          />
         </div>
-
-        {/* Labels eixo */}
         <div className="relative flex justify-between text-xs text-gray-400">
           <span>0%</span>
           <span
@@ -159,7 +196,9 @@ export function TaxaEstimativaCard() {
             ? `${issues_processed} issue${issues_processed !== 1 ? 's' : ''} processada${issues_processed !== 1 ? 's' : ''}`
             : 'Release 26.06'}
         </p>
-        <p className="text-xs text-gray-400">Atualizado em {formattedDate}</p>
+        <button onClick={fetchMetric} className="text-xs text-gray-400 hover:text-gray-600">
+          Atualizado em {formattedDate} ↻
+        </button>
       </div>
     </div>
   )
